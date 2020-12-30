@@ -1,0 +1,277 @@
+[=======================================================================================================================
+Author: Devon Connors
+File Name: UPDATE.ESCROW.DISTRIBUTION
+Description: A dialog box appears allowing the user to select the loan they would like to manipulate.  
+             The user can change the Next Distribution Date or the Next Distribution Amount using
+             this tool.
+             
+Date Created: 6/5/18
+Revision History:
+DATE:                       AUTHOR:                              DESCRIPTION:
+-----                       ----------------------------         ----------------------------------------
+========================================================================================================================]
+
+WINDOWS
+
+TARGET=ACCOUNT
+
+DEFINE
+  #INCLUDE "RD.GETDATA.DEF"
+  [FLAGS]
+  CHANGEDISTDATE=NUMBER
+  CHANGEDISTAMT=NUMBER
+  ESCROWINSTANCE=NUMBER
+
+  [DIALOGBOX]
+  NEXTDISTDATE=DATE
+  NEXTDISTAMT=MONEY
+  LOANID=NUMBER
+  ESCROWTYPE=NUMBER
+  TEMPLOC=NUMBER
+  
+  [LOAN]
+  ESCROWAMT=MONEY
+  LID=CHARACTER
+  
+  [ESCROW RECORD]
+  OGDISTDATE=DATE
+  OGDISTAMT=MONEY
+  ESCROWLOC=NUMBER
+  
+  [ESCROW ANALYSIS]
+  OGANALYSISDATE=DATE
+  ANALYSISLOC=NUMBER
+  
+  [FMPERFORM]
+  ERRORTEXT=CHARACTER
+  
+  TRUE=1
+  FALSE=0
+END[END IF]
+
+SETUP
+  DIALOGSTART("Update Escrow Record",200%,0)
+  
+  DIALOGPROMPTCOMBOSTART("Select the Appropriate Loan:",0)
+    FOR EACH LOAN WITH LOAN:CLOSEDATE='--/--/----' AND
+                       LOAN:CHARGEOFFDATE='--/--/----' AND
+                       (LOAN:TYPE>=50 OR LOAN:TYPE<=60)
+      DO
+        ESCROWINSTANCE=FALSE
+        FOR EACH LOAN ESCROW
+          DO
+            ESCROWINSTANCE=TRUE
+          END[END FOR EACH LOAN ESCROW]
+          
+        IF ESCROWINSTANCE=TRUE THEN
+          DO
+            DIALOGPROMPTCOMBOOPTION(VALUE(LOAN:ID),LOAN:DESCRIPTION)
+          END[END IF]
+      END[END FOR EACH LOAN]
+  DIALOGPROMPTCOMBOEND
+  
+  DIALOGPROMPTDATE("Next Distribution Date: ",'--/--/----')
+  DIALOGPROMPTMONEY("Next Distribution Amount: ",$0.00)
+  
+  DIALOGDISPLAY
+    LOANID=ENTERNUMBER("Select the Appropriate Loan:",0)
+    NEXTDISTDATE=ENTERDATE("Next Distribution Date: ",'--/--/----')
+    NEXTDISTAMT=ENTERMONEY("Next Distribution Amount: ",$0.00)
+  DIALOGCLOSE
+  
+  LID=FORMAT("9999",LOANID)
+  
+  CALL CHECKDATA
+  CALL PICKESCROW
+END[END SETUP]
+
+PRINT TITLE="Update Escrow Distribution Information" 
+  
+  FOR ACCOUNT ACCOUNT:NUMBER
+    DO
+      FOR EACH LOAN WITH LOAN:ID = LID
+        DO
+          ESCROWAMT=LOAN:ESCROWAMOUNT
+          FOR EACH LOAN ESCROW WITH LOAN ESCROW:LOCATOR=ESCROWLOC
+            DO
+              OGDISTDATE=LOAN ESCROW:NEXTDISTRIBDATE
+              OGDISTAMT=LOAN ESCROW:NEXTDISTRIBAMOUNT
+            END[END FOR EACH LOAN ESCROW]
+            
+          FOR EACH LOAN ESCROWANALYSIS
+            DO
+              OGANALYSISDATE=LOAN ESCROWANALYSIS:NEXTANALYSISDATE
+              ANALYSISLOC=LOAN ESCROWANALYSIS:LOCATOR
+            END
+        END[END FOR EACH LOAN]
+    END[END FOR ACCOUNT] 
+  
+  IF NEXTDISTAMT<ESCROWAMT THEN
+    DO
+      POPUPMESSAGE(2,"Next Distribution Amount less than the Escrow Amount -- Terminating")
+      TERMINATE
+    END  
+  CALL DETERMINEFM
+END[END PRINT TITLE]
+
+PROCEDURE CHECKDATA
+  CHANGEDISTDATE=FALSE
+  CHANGEDISTAMT=FALSE
+  
+  IF NEXTDISTDATE='--/--/----' AND NEXTDISTAMT=$0.00 THEN
+    DO
+      POPUPMESSAGE(2,"Invalid Input")
+      TERMINATE
+    END[END IF]
+  ELSE IF NEXTDISTDATE='--/--/----' AND NEXTDISTAMT<>$0.00 THEN
+    DO
+      CHANGEDISTAMT=TRUE
+    END[END ELSE IF]
+  ELSE IF NEXTDISTDATE<>'--/--/----' AND NEXTDISTAMT=$0.00 THEN
+    DO
+      CHANGEDISTDATE=TRUE
+    END[END ELSE IF]
+  ELSE
+    DO
+      CHANGEDISTDATE=TRUE
+      CHANGEDISTAMT=TRUE
+    END[END ELSE]
+    
+  IF CHANGEDISTDATE=TRUE THEN
+    DO
+      IF NEXTDISTDATE < SYSTEMDATE THEN
+        DO
+          POPUPMESSAGE(2,"Date is prior to System's Date -- Terminating")
+          TERMINATE
+        END[END IF]
+    END[END IF]
+END[END CHECKDATA]
+
+PROCEDURE PICKESCROW
+  DIALOGSTART("Update Escrow Record",200%,0)
+  
+  DIALOGPROMPTCOMBOSTART("Select the Appropriate Escrow:",0)
+  FOR EACH LOAN WITH LOAN:ID = LID
+    DO
+      FOR EACH LOAN ESCROW WITH LOAN ESCROW:EXPIRATIONDATE>SYSTEMDATE
+      DO
+        DIALOGPROMPTCOMBOOPTION(LOAN ESCROW:LOCATOR, GETDATACHAR(GETPARAMESCROWTYPEDESCRIPTION,LOAN ESCROW:ESCROWTYPE))
+      END[END FOR EACH LOAN]
+    END[END FOR EACH LOAN]
+  DIALOGPROMPTCOMBOEND
+  
+  DIALOGDISPLAY
+    ESCROWLOC=ENTERNUMBER("Select the Appropriate Escrow:",0)
+  DIALOGCLOSE
+  
+END[END PICKESCROW]
+
+PROCEDURE DETERMINEFM
+  IF CHANGEDISTDATE=TRUE AND CHANGEDISTAMT=FALSE THEN
+    DO   
+      IF YESNOPROMPT("Change the date to: " + FORMAT("99/99/9999",NEXTDISTDATE)) THEN
+        DO
+          CALL UPDATEDISTDATE
+          POPUPMESSAGE(0,"Next Distribution Date has been changed from " + 
+                       FORMAT("99/99/9999",OGDISTDATE) + " to " + 
+                       FORMAT("99/99/9999",NEXTDISTDATE))
+        END[END IF]
+      ELSE
+        DO
+          TERMINATE
+        END[END ELSE]   
+    END[END ELSE IF]
+  ELSE IF CHANGEDISTDATE=FALSE AND CHANGEDISTAMT=TRUE THEN
+    DO
+      IF YESNOPROMPT("Change the amount to: " + FORMAT("###99.99",NEXTDISTAMT)) THEN
+        DO
+          CALL UPDATEDISTAMT
+          POPUPMESSAGE(0,"Next Distribution Amount has been changed from " + 
+                       FORMAT("###99.99",OGDISTAMT) + " to " + 
+                       FORMAT("###99.99",NEXTDISTAMT))
+        END[END IF]
+      ELSE
+        DO
+          TERMINATE
+        END[END ELSE]
+    END[END ELSE IF]
+  ELSE IF CHANGEDISTDATE=TRUE AND CHANGEDISTAMT=TRUE THEN
+    DO
+      IF YESNOPROMPT("Change the amount to: " + FORMAT("###99.99",NEXTDISTAMT)) THEN
+        DO
+          IF YESNOPROMPT("Change the date to: " + FORMAT("99/99/9999",NEXTDISTDATE)) THEN
+            DO
+              CALL UPDATEDISTDATE
+              CALL UPDATEDISTAMT
+              POPUPMESSAGE(0,"Next Distribution Date has been changed from " + 
+                           FORMAT("99/99/9999",OGDISTDATE) + " to " + 
+                           FORMAT("99/99/9999",NEXTDISTDATE))
+              POPUPMESSAGE(0,"Next Distribution Amount has been changed from " + 
+                           FORMAT("###99.99",OGDISTAMT) + " to " + 
+                           FORMAT("###99.99",NEXTDISTAMT))
+            END[END IF]
+          ELSE
+            DO
+              TERMINATE
+            END[END ELSE]
+        END[END IF]
+      ELSE
+        DO
+          TERMINATE
+        END[END ELSE]
+    END[END ELSE IF]
+END[END DETERMINEFM]
+
+PROCEDURE UPDATEDISTDATE
+  FMPERFORM REVISE LOAN LID ESCROW LOC ESCROWLOC(1,0,ERRORTEXT)
+    DO
+      SET NEXTDISTRIBDATE TO NEXTDISTDATE
+      SET DAY1 TO DAY(NEXTDISTDATE)
+    END[END FMPERFORM]
+  
+  CALL CHECKERROR 
+  
+  IF OGANALYSISDATE > OGDISTDATE-45 THEN
+    DO
+      CALL UPDATENEXTANALYSISDATE
+    END[END IF]
+END[END UPDATEDISTDATE]
+
+PROCEDURE UPDATEDISTAMT
+  FMPERFORM REVISE LOAN LID ESCROW LOC ESCROWLOC(1,0,ERRORTEXT)
+    DO
+      SET NEXTDISTRIBAMOUNT TO NEXTDISTAMT
+    END[END FMPERFORM]
+  
+  CALL CHECKERROR
+END[END UPDATEDISTAMT]
+
+PROCEDURE UPDATEBOTH
+  FMPERFORM REVISE LOAN LID ESCROW LOC ESCROWLOC(1,0,ERRORTEXT)
+    DO
+      SET NEXTDISTRIBDATE TO NEXTDISTDATE
+      SET DAY1 TO DAY(NEXTDISTDATE)
+      SET NEXTDISTRIBAMOUNT TO NEXTDISTAMT
+    END[END FMPERFORM]
+  
+  CALL CHECKERROR
+  CALL UPDATENEXTANALYSISDATE
+END[END UPDATEBOTH]
+
+PROCEDURE UPDATENEXTANALYSISDATE
+  FMPERFORM REVISE LOAN LID ESCROWANALYSIS LOC ANALYSISLOC(1,0,ERRORTEXT)
+    DO
+      SET NEXTANALYSISDATE TO NEXTDISTDATE-45
+    END[END FMPERFORM]
+    
+  CALL CHECKERROR
+END[END UPDATENEXTANALYSISDATE]
+
+PROCEDURE CHECKERROR
+  IF ERRORTEXT<>"" THEN
+    DO
+      POPUPMESSAGE(0,"Change could not be completed - " + ERRORTEXT)
+      TERMINATE
+    END
+END[END CHECKERROR]
+
