@@ -1,0 +1,446 @@
+[=======================================================================================================================
+Author: Devon Connors
+File Name: DEC.ESCROW.CREATION
+Description: A dialog box appears allowing the user to select the loan they would like to manipulate.  
+             The user can also enter the Next Distribution Amount to update the account.  This
+             will create the escrow share, fund the escrow share, and creates the escrow record/
+             escrowanalysis record.
+             
+Date Created: 6/25/18
+Revision History:
+DATE:                       AUTHOR:                              DESCRIPTION:
+-----                       ----------------------------         ----------------------------------------
+7/6/2018                    Devon Connors                        Appended the On Demand specfile to be more dynamic
+                                                                 in reference to certain areas.  Share ID is now
+                                                                 dynamically assigned between 100 and 109.  The 
+                                                                 
+12/9/19                     Tom Strohecker                       Added New Arms Types                                            
+                                                                 
+========================================================================================================================]
+
+WINDOWS
+
+TARGET=ACCOUNT
+
+DEFINE
+  #INCLUDE "RD.OUTPUT.DEF"
+  #INCLUDE "RB.LISTEXPAND.DEF"
+  #INCLUDE "RD.GETDATA.DEF"
+
+  [Flags]
+  HASESCROW=NUMBER
+  HASTRACKING=NUMBER
+  HASSHARE=NUMBER
+  ESCROWVAL=NUMBER
+  ESCROWINSTANCE=NUMBER
+  VALIDSHARE=NUMBER
+  LNESCROW=NUMBER
+  
+  [Loan Information]
+  LOANOPEN=DATE
+  LOANID=NUMBER
+  LID=CHARACTER
+  LNEXPDATE=DATE
+  ESCROWAMT=MONEY
+  
+  [Tracking Data]
+  DAYONEVAL=NUMBER
+  NEXTDISTDATE=DATE
+  NEXTDISTAMT=MONEY
+  SHBALANCE=MONEY
+  
+  [Escrow Data]
+  ESCROWCOUNT=NUMBER
+  SHARECOUNT=NUMBER
+  SHAREID=CHARACTER
+  ESCROWLIST=CHARACTER
+  SHAREIDLIST=NUMBER ARRAY(9999)
+  
+  [Policy Information]
+  POLICYOWN=CHARACTER
+  POLICYNUM=CHARACTER
+  POLICYAMT=MONEY
+  POLICYORIG=DATE
+  POLICYEXP=DATE
+  
+  [FMPERFORM]
+  FMPERROR=CHARACTER
+  
+  [TRANPERFORM]
+  SEQ1=NUMBER
+  SEQ2=NUMBER
+  CHECKINGCODE=CHARACTER
+  CHECKNUM=CHARACTER
+  ERRORTEXT=CHARACTER
+  
+  [Data Storage]
+  WCEXPIRATION=DATE
+  WCNUM=NUMBER
+  
+  [Counters]
+  I=NUMBER
+  
+  [Constants]
+  TRUE=1
+  FALSE=0
+  SHARETYPE="3"
+  ESCROWTYPE=0
+  GLNUM=540 [540][87088800000000]
+END[END DEFINE]
+
+SETUP
+  HASESCROW=FALSE
+  HASTRACKING=FALSE
+  HASSHARE=FALSE
+  ESCROWVAL=FALSE
+  I=0
+  WCNUM=0
+  
+  ESCROWLIST = "100-109"
+  LELISTINPUT = ESCROWLIST
+  FOR I=0 TO 9999
+    DO
+      SHAREIDLIST(I) = LELIST(I)
+    END[END FOR]
+  
+  DIALOGSTART("Update Escrow Record",200%,0)
+  
+  DIALOGPROMPTCOMBOSTART("Select the Appropriate Loan:",0)
+    ESCROWINSTANCE=FALSE
+    FOR EACH LOAN WITH LOAN:CLOSEDATE='--/--/----' AND
+                       LOAN:CHARGEOFFDATE='--/--/----' AND
+                       (
+                       (LOAN:TYPE>=50 AND LOAN:TYPE<=60)
+				   OR   (LOAN:TYPE=61 OR LOAN:TYPE=65)
+				        )
+      DO
+        FOR EACH LOAN TRACKING WITH LOAN TRACKING:TYPE=33
+          DO
+            IF LOAN TRACKING:USERAMOUNT1 > $0.00 OR
+               LOAN TRACKING:USERNUMBER1=1 THEN
+              DO
+                ESCROWINSTANCE=TRUE
+                DIALOGPROMPTCOMBOOPTION(VALUE(LOAN:ID),"(" + LOAN:ID + ") " + LOAN:DESCRIPTION)
+              END[END IF]
+          END[END FOR EACH LOAN TRACKING]
+      END[END FOR EACH LOAN]
+  DIALOGPROMPTCOMBOEND
+  
+  IF ESCROWINSTANCE=TRUE THEN
+    DO
+      DIALOGPROMPTMONEY("Annual Insurance Premium: ",$0.00)
+      
+    
+      DIALOGDISPLAY
+        LOANID=ENTERNUMBER("Select the Appropriate Loan:",0)
+        NEXTDISTAMT=ENTERMONEY("Annual Insurance Premium: ",$0.00)
+      DIALOGCLOSE
+      
+      LID=FORMAT("9999",LOANID)
+  
+      [CALL SELECTESCROW]
+    END[END IF]
+  
+END[END SETUP]
+
+SELECT
+  ACCOUNT:CLOSEDATE='--/--/----' AND
+  LOAN:CLOSEDATE='--/--/----' AND
+  LOAN:CHARGEOFFDATE='--/--/----'
+END[END SETUP]
+
+PRINT TITLE="Escrow Counts" REPORTCATEGORY="LOANREPORT"
+  HEADER=""
+  IF ESCROWINSTANCE=FALSE THEN
+    DO
+      POPUPMESSAGE(1,"No Valid Loans on Account")
+      POPUPMESSAGE(1,"Please check Loan Tracking Record 33")
+      TERMINATE
+    END[END IF]
+  ELSE
+    DO
+      FOR ACCOUNT ACCOUNT:NUMBER
+        DO
+          HASSHARE=FALSE
+          VALIDSHARE=FALSE
+      
+          [Checks to see if there is an escrow share]
+          FOR EACH SHARE WITH SHARE:CLOSEDATE='--/--/----' AND
+                              SHARE:TYPE=3
+            DO
+              IF SHARE:ESCROWEDLOANID = LID THEN
+                DO
+                  HASSHARE=TRUE
+                  VALIDSHARE=TRUE
+                  SHAREID=SHARE:ESCROWEDLOANID
+                END[END IF]
+              ELSE
+                DO
+                  FOR I=100 TO 109
+                    DO
+                      IF I <> VALUE(SHARE:ID) AND VALIDSHARE=FALSE THEN
+                        DO
+                          VALIDSHARE=TRUE
+                          SHAREID=FORMAT("9999",I)
+                        END[END IF]
+                    END[END FOR LOOP]
+                END[END ELSE]
+            END[END FOR EACH SHARE]
+            
+          IF VALIDSHARE=FALSE THEN
+            DO
+              VALIDSHARE=TRUE
+              SHAREID="0100"
+            END[END IF]
+          [Checks to see if the loan has escrow and pulls values]
+
+          FOR EACH LOAN WITH LOAN:ID = LID
+            DO
+              [Reset Flags]
+              HASESCROW=FALSE
+              HASTRACKING=FALSE
+          
+              LOANOPEN=LOAN:OPENDATE
+              LNEXPDATE=LOAN:MATURITYDATE
+              ESCROWAMT=LOAN:ESCROWAMOUNT
+          
+              FOR EACH LOAN TRACKING WITH LOAN TRACKING:TYPE=33
+                DO
+                  IF LOAN TRACKING:USERAMOUNT1 > $0.00 THEN
+                    DO
+                      HASTRACKING=TRUE
+                  
+                      [Pulls Tracking Record Information]
+                      SHBALANCE=LOAN TRACKING:USERAMOUNT1
+                      DAYONEVAL=DAY(LOAN TRACKING:USERDATE2)
+                      NEXTDISTDATE=LOAN TRACKING:USERDATE2
+                      
+                      POLICYNUM=LOAN TRACKING:USERCHAR4
+                      POLICYAMT=LOAN TRACKING:USERAMOUNT2
+                      POLICYORIG=LOAN TRACKING:USERDATE1
+                      POLICYEXP=LOAN TRACKING:USERDATE2
+                    END[END IF]
+                END[END FOR EACH LOAN TRACKING 33]
+                 
+                IF HASTRACKING=TRUE THEN
+                  DO
+                    FOR EACH LOAN TRACKING WITH LOAN TRACKING:TYPE=35
+                      DO
+                        POLICYOWN=UPPERCASE(LOAN TRACKING:USERCHAR1)
+                      END[END FOR EACH LOAN TRACKING 35]
+                  END[END IF]
+              
+                IF LOAN:ESCROWID = "" THEN
+                  DO
+                    ESCROWVAL=TRUE
+                  END[END IF]
+              
+                FOR EACH LOAN ESCROW
+                  DO
+                    HASESCROW=TRUE
+                  END[END FOR EACH LOAN ESCROW]
+            END[END FOR EACH LOAN]
+        END[END FOR ACCOUNT]
+      
+      IF HASTRACKING=TRUE AND HASESCROW=FALSE THEN
+        DO      
+          IF HASSHARE=FALSE AND VALIDSHARE=TRUE THEN
+            DO
+             CALL CREATEESCROWSHARE
+            END[END IF]
+          
+          IF HASESCROW=FALSE THEN
+            DO
+            
+              CALL CREATEESCROWRECORD
+              CALL CREATEESCROWANALYSIS
+              CALL DEPOSITFUNDS
+            
+            END[END IF]
+          
+          IF ESCROWVAL=TRUE THEN
+            DO
+              CALL SETESCROWVALUES
+            END[END IF]  
+          
+          CALL SUMMARYDIALOG
+        END[END FOR ACCOUNT]
+    END[END ELSE]
+END[END PRINT TITLE]
+
+PROCEDURE CREATEESCROWSHARE
+  SHARECOUNT=SHARECOUNT+1
+  FMPERFORM CREATE SHARE SHAREID (0,VALUE(SHARETYPE),FMPERROR)
+    DO
+      SET TYPE TO VALUE(SHARETYPE)
+      SET OPENDATE TO SYSTEMDATE   
+      SET BRANCH TO ACCOUNT:BRANCH
+      SET RENEWSHARETYPE TO 3
+      SET DESCRIPTION TO "ESCROW ACCOUNT"
+      SET USERCHAR1 TO "DISQUALIFIED"
+      SET STATEMENTGROUP TO 0	
+      SET MINIMUMBALANCE TO $0.00
+    END[END FMPERFORM]
+  
+  CALL ERRORCHK
+END[END CREATEESCROWSHARE]
+
+PROCEDURE DEPOSITFUNDS
+ [Transfers funds into a holding GL]
+  CALL MANIPULATEWC
+  
+  TRANPERFORM D (0,SEQ1,SEQ2,CHECKINGCODE,CHECKNUM,ERRORTEXT)
+    DO
+      [Robin Deposit Prior to running]
+      SET AMOUNT TO SHBALANCE
+      SET GLCODE TO GLNUM [540]
+      SET TOID TO SHAREID
+      SET TOTYPE TO "S"
+      SET COMMENT:1 TO "Escrow Prepaid"
+    END[END TRANPERFORM]
+    
+  CALL ERRORCHK
+    
+  TRANPERFORM C (0,SEQ1,SEQ2,CHECKINGCODE,CHECKNUM,ERRORTEXT)
+    DO
+      SET TOACCT TO ACCOUNT:NUMBER
+      SET TOID TO SHAREID
+      SET TOTYPE TO "S"
+      SET COMMENT:1 TO "Escrow funds prepaid at closing"
+    END[END TRANPERFORM]
+    
+  CALL ERRORCHK
+    
+  CALL MANIPULATEWC
+END[END DEPOSITFUNDS]
+
+PROCEDURE SETESCROWVALUES
+  FMPERFORM REVISE LOAN LID (0,0,FMPERROR)
+    DO
+      SET ESCROWID TO SHAREID
+    END[END FMPERFORM]
+    
+  CALL ERRORCHK
+END[END SETESCROWVALUES]
+
+PROCEDURE CREATEESCROWRECORD
+  ESCROWCOUNT=ESCROWCOUNT+1
+  FMPERFORM CREATE LOAN LID ESCROW LOC AFTERLAST (0,0,FMPERROR)
+    DO
+      SET ESCROWTYPE TO ESCROWTYPE
+      SET DISTRIBFREQUENCY TO 1
+      SET DAY1 TO DAY(NEXTDISTDATE)
+      SET NEXTDISTRIBDATE TO NEXTDISTDATE
+      SET NEXTDISTRIBAMOUNT TO NEXTDISTAMT
+      SET PAYMENTPORTION TO ESCROWAMT
+      SET EXPIRATIONDATE TO LNEXPDATE
+      SET PRINTDISTRIBNOTICE TO 1
+      SET POLICYOWNER TO UPPERCASE(POLICYOWN)
+      SET POLICYNUMBER TO POLICYNUM
+      SET POLICYAMOUNT TO POLICYAMT
+      SET POLICYORIGDATE TO POLICYORIG
+      SET POLICYEXPIREDATE TO POLICYEXP
+    END[END FMPERFORM]
+  
+  CALL ERRORCHK
+END[END CREATEESCROWRECORD]
+
+PROCEDURE CREATEESCROWANALYSIS
+  FMPERFORM CREATE LOAN LID ESCROWANALYSIS LOC AFTERLAST (0,0,FMPERROR)
+    DO
+      SET INITIALDISCLTHIRD TO 1
+      SET PRIORANALYSISSOURCE TO 0
+      SET NEXTANALYSISDATE TO NEXTDISTDATE-45
+    END[END FMPERFORM]
+    
+  CALL ERRORCHK
+END[END CREATEESCROWANALYSIS]
+
+PROCEDURE SUMMARYDIALOG
+  POPUPMESSAGE(1,"Escrow Record Creation and Funding Complete")
+END[END SUMMARYDIALOG]
+
+PROCEDURE MANIPULATEWC
+  IF WCNUM=0 THEN
+    DO
+      FOR I=1 TO 20
+        DO
+          IF ACCOUNT:WARNINGCODE:(I) = 01 THEN
+            DO
+              WCEXPIRATION=ACCOUNT:WARNINGEXPIRATION:(I)
+              WCNUM=I
+              
+              FMPERFORM REVISE ACCOUNT(0,0,FMPERROR)
+                DO
+                  SET WARNINGEXPIRATION:(I) TO (SYSTEMDATE-1)
+                END[END FMPERFORM]
+          
+              CALL ERRORCHK
+            END[END IF]
+        END[END FOR LOOP]
+    END[END IF]
+  ELSE IF WCNUM=0 THEN
+    DO
+      FMPERFORM REVISE ACCOUNT(0,0,FMPERROR)
+        DO
+          SET WARNINGEXPIRATION:(WCNUM) TO WCEXPIRATION
+        END[END FMPERFORM]
+      
+      CALL ERRORCHK
+    END[END ELSE]
+END[END MANIPULATEWC]
+
+PROCEDURE ERRORCHK
+  IF ERRORTEXT<>"" THEN
+    DO
+      POPUPMESSAGE(0,ERRORTEXT)
+      TERMINATE
+    END[END IF]
+  ELSE IF FMPERROR<>"" THEN
+    DO
+      POPUPMESSAGE(0,FMPERROR)
+      TERMINATE
+    END[END ELSE IF]
+END[END ERRORCHK]
+
+[PROCEDURE SELECTESCROW
+  DIALOGSTART("Update Escrow Record",200%,0)
+  
+  DIALOGPROMPTCOMBOSTART("Select the Appropriate Escrow:",0)
+    FOR EACH LOAN WITH LOAN:ID = LID
+      DO
+        WHILELIMIT=1000000
+        LNESCROW=FALSE
+        FOR EACH LOAN ESCROW
+          DO
+            WHILELIMIT=1000000
+            LNESCROW=TRUE
+            FOR I=0 TO 99
+              DO
+                IF GETDATANUMBER(GETPARAMESCROWTYPEDEFINEDCODE,I)>0 AND I <> LOAN ESCROW:ESCROWTYPE THEN
+                  DO
+                    DIALOGPROMPTCOMBOOPTION(I,GETDATACHAR(GETPARAMESCROWTYPEDESCRIPTION,I))
+                  END[END IF]
+              END[END FOR LOOP]
+          END[END FOR EACH LOAN ESCROW]
+      END[END FOR EACH LOAN]
+      
+      IF LNESCROW=FALSE THEN
+        DO
+          FOR I=0 TO 99
+            DO
+              WHILELIMIT=1000000
+              IF GETDATANUMBER(GETPARAMESCROWTYPEDEFINEDCODE,I)>0 THEN
+                DO
+                  DIALOGPROMPTCOMBOOPTION(I,GETDATACHAR(GETPARAMESCROWTYPEDESCRIPTION,I))
+                END[END IF]
+            END[END FOR LOOP]
+        END[END IF]
+  DIALOGPROMPTCOMBOEND
+  
+  DIALOGDISPLAY
+    ESCROWTYPE=ENTERNUMBER("Select the Appropriate Escrow:",0)
+  DIALOGCLOSE
+END[END SELECTESCROW]]
+
+#INCLUDE "RB.LISTEXPAND"
