@@ -14,7 +14,9 @@ DATE:                       AUTHOR:                              DESCRIPTION:
                                                                  in reference to certain areas.  Share ID is now
                                                                  dynamically assigned between 100 and 109.  The 
                                                                  
-12/9/19                     Tom Strohecker                       Added New Arms Types                                            
+12/9/19                     Tom Strohecker                       Added New Arms Types         
+
+12/29/20					 Tom Strohecker						Updated logic to set next analysis date to 12/31 of the current year                                   
                                                                  
 ========================================================================================================================]
 
@@ -34,7 +36,6 @@ DEFINE
   ESCROWVAL=NUMBER
   ESCROWINSTANCE=NUMBER
   VALIDSHARE=NUMBER
-  LNESCROW=NUMBER
   
   [Loan Information]
   LOANOPEN=DATE
@@ -350,7 +351,7 @@ PROCEDURE CREATEESCROWANALYSIS
     DO
       SET INITIALDISCLTHIRD TO 1
       SET PRIORANALYSISSOURCE TO 0
-      SET NEXTANALYSISDATE TO NEXTDISTDATE-45
+      SET NEXTANALYSISDATE TO DATE(12,31,FULLYEAR(SYSTEMDATE))[NEXTDISTDATE-45]
     END[END FMPERFORM]
     
   CALL ERRORCHK
@@ -402,45 +403,5 @@ PROCEDURE ERRORCHK
       TERMINATE
     END[END ELSE IF]
 END[END ERRORCHK]
-
-[PROCEDURE SELECTESCROW
-  DIALOGSTART("Update Escrow Record",200%,0)
-  
-  DIALOGPROMPTCOMBOSTART("Select the Appropriate Escrow:",0)
-    FOR EACH LOAN WITH LOAN:ID = LID
-      DO
-        WHILELIMIT=1000000
-        LNESCROW=FALSE
-        FOR EACH LOAN ESCROW
-          DO
-            WHILELIMIT=1000000
-            LNESCROW=TRUE
-            FOR I=0 TO 99
-              DO
-                IF GETDATANUMBER(GETPARAMESCROWTYPEDEFINEDCODE,I)>0 AND I <> LOAN ESCROW:ESCROWTYPE THEN
-                  DO
-                    DIALOGPROMPTCOMBOOPTION(I,GETDATACHAR(GETPARAMESCROWTYPEDESCRIPTION,I))
-                  END[END IF]
-              END[END FOR LOOP]
-          END[END FOR EACH LOAN ESCROW]
-      END[END FOR EACH LOAN]
-      
-      IF LNESCROW=FALSE THEN
-        DO
-          FOR I=0 TO 99
-            DO
-              WHILELIMIT=1000000
-              IF GETDATANUMBER(GETPARAMESCROWTYPEDEFINEDCODE,I)>0 THEN
-                DO
-                  DIALOGPROMPTCOMBOOPTION(I,GETDATACHAR(GETPARAMESCROWTYPEDESCRIPTION,I))
-                END[END IF]
-            END[END FOR LOOP]
-        END[END IF]
-  DIALOGPROMPTCOMBOEND
-  
-  DIALOGDISPLAY
-    ESCROWTYPE=ENTERNUMBER("Select the Appropriate Escrow:",0)
-  DIALOGCLOSE
-END[END SELECTESCROW]]
 
 #INCLUDE "RB.LISTEXPAND"
